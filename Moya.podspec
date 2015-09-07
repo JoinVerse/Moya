@@ -20,7 +20,7 @@ Pod::Spec.new do |s|
 
   s.subspec "Core" do |ss|
     ss.source_files  = "Moya/*.swift"
-    ss.dependency "Alamofire", :git=> 'https://github.com/Alamofire/Alamofire.git', :branch => 'swift-2.0'
+    ss.dependency "Alamofire", "~> 2.0.0-beta.4"
     ss.framework  = "Foundation"
   end
 
