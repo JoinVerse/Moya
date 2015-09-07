@@ -88,7 +88,7 @@ public enum ParameterEncoding {
                     components += queryComponents(key, value)
                 }
 
-                return "&".join(components.map { "\($0)=\($1)" } as [String])
+                return (components.map { "\($0)=\($1)" } as [String]).joinWithSeparator("&")
             }
 
             func encodesParametersInURL(method: Method) -> Bool {
@@ -108,7 +108,10 @@ public enum ParameterEncoding {
                 }
             } else {
                 if mutableURLRequest.valueForHTTPHeaderField("Content-Type") == nil {
-                    mutableURLRequest.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+                    mutableURLRequest.setValue(
+                        "application/x-www-form-urlencoded; charset=utf-8",
+                        forHTTPHeaderField: "Content-Type"
+                    )
                 }
 
                 mutableURLRequest.HTTPBody = query(parameters).dataUsingEncoding(

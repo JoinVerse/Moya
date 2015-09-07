@@ -3,7 +3,6 @@
 [![Build Status](https://travis-ci.org/Alamofire/Alamofire.svg)](https://travis-ci.org/Alamofire/Alamofire)
 [![Cocoapods Compatible](https://img.shields.io/cocoapods/v/Alamofire.svg)](https://img.shields.io/cocoapods/v/Alamofire.svg)
 [![Carthage Compatible](https://img.shields.io/badge/Carthage-compatible-4BC51D.svg?style=flat)](https://github.com/Carthage/Carthage)
-[![License](https://img.shields.io/cocoapods/l/Alamofire.svg?style=flat&color=gray)](http://cocoadocs.org/docsets/Alamofire)
 [![Platform](https://img.shields.io/cocoapods/p/Alamofire.svg?style=flat)](http://cocoadocs.org/docsets/Alamofire)
 [![Twitter](https://img.shields.io/badge/twitter-@AlamofireSF-blue.svg?style=flat)](http://twitter.com/AlamofireSF)
 
@@ -26,7 +25,11 @@ Alamofire is an HTTP networking library written in Swift.
 ## Requirements
 
 - iOS 8.0+ / Mac OS X 10.9+ / watchOS 2
-- Xcode 7.0 beta 5+
+- Xcode 7.0 beta 6+
+
+## Migration Guides
+
+- [Alamofire 2.0 Migration Guide](https://github.com/Alamofire/Alamofire/blob/swift-2.0/Documentation/Alamofire%202.0%20Migration%20Guide.md)
 
 ## Communication
 
@@ -323,6 +326,12 @@ Alamofire.upload(.POST, "http://httpbin.org/post", file: fileURL)
 Alamofire.upload(.POST, "http://httpbin.org/post", file: fileURL)
          .progress { bytesWritten, totalBytesWritten, totalBytesExpectedToWrite in
              print(totalBytesWritten)
+
+             // This closure is NOT called on the main queue for performance
+             // reasons. To update your ui, dispatch to the main queue.
+             dispatch_async(dispatch_get_main_queue) {
+                 print("Total bytes written on main queue: \(totalBytesWritten)")
+             }
          }
          .responseJSON { request, response, result in
              debugPrint(result)
@@ -386,6 +395,12 @@ Alamofire.download(.GET, "http://httpbin.org/stream/100", destination: destinati
 Alamofire.download(.GET, "http://httpbin.org/stream/100", destination: destination)
          .progress { bytesRead, totalBytesRead, totalBytesExpectedToRead in
              print(totalBytesRead)
+
+             // This closure is NOT called on the main queue for performance
+             // reasons. To update your ui, dispatch to the main queue.
+             dispatch_async(dispatch_get_main_queue) {
+                 print("Total bytes read on main queue: \(totalBytesRead)")
+             }
          }
          .response { request, response, _, error in
              print(response)
@@ -582,7 +597,7 @@ let manager = Alamofire.Manager(configuration: configuration)
 #### Creating a Manager with Background Configuration
 
 ```swift
-let configuration = NSURLSessionConfiguration.backgroundSessionConfiguration("com.example.app.background")
+let configuration = NSURLSessionConfiguration.backgroundSessionConfigurationWithIdentifier("com.example.app.background")
 let manager = Alamofire.Manager(configuration: configuration)
 ```
 
@@ -637,12 +652,11 @@ extension Request {
                 return .Failure(data, error)
             }
 
-            var XMLSerializationError: NSError?
-
-            if let XML = ONOXMLDocument(data: validData, error: &XMLSerializationError) {
+            do {
+                let XML = try ONOXMLDocument(data: validData)
                 return .Success(XML)
-            } else {
-                return .Failure(data, XMLSerializationError!)
+            } catch {
+                return .Failure(data, error as NSError)
             }
         }
     }
@@ -813,7 +827,7 @@ Alamofire.request(.GET, user) // http://example.com/users/mattt
 
 ### URLRequestConvertible
 
-Types adopting the `URLRequestConvertible` protocol can be used to construct URL requests. `NSURLRequest` conforms to `URLRequestConvertible` by default, allowing it to be passed into `request`, `upload`, and `download` methods directly (this is the recommended way to specify custom HTTP header fields or HTTP body for individual requests):
+Types adopting the `URLRequestConvertible` protocol can be used to construct URL requests. `NSURLRequest` conforms to `URLRequestConvertible` by default, allowing it to be passed into `request`, `upload`, and `download` methods directly (this is the recommended way to specify custom HTTP body for individual requests):
 
 ```swift
 let URL = NSURL(string: "http://httpbin.org/post")!
@@ -989,37 +1003,59 @@ These server trust policies will result in the following behavior:
 * `insecure.expired-apis.com` will never evaluate the certificate chain and will always allow the TLS handshake to succeed.
 * All other hosts will use the default evaluation provided by Apple.
 
-* * *
+##### Subclassing Server Trust Policy Manager
 
-## FAQ
+If you find yourself needing more flexible server trust policy matching behavior (i.e. wildcarded domains), then subclass the `ServerTrustPolicyManager` and override the `serverTrustPolicyForHost` method with your own custom implementation.
 
-### When should I use Alamofire?
+```swift
+class CustomServerTrustPolicyManager: ServerTrustPolicyManager {
+    override func serverTrustPolicyForHost(host: String) -> ServerTrustPolicy? {
+        var policy: ServerTrustPolicy?
 
-If you're starting a new project in Swift, and want to take full advantage of its conventions and language features, Alamofire is a great choice. Although not as fully-featured as AFNetworking, Alamofire is much nicer to work with, and should satisfy the vast majority of networking use cases.
+        // Implement your custom domain matching behavior...
 
-> It's important to note that two libraries aren't mutually exclusive: AFNetworking and Alamofire can peacefully exist in the same code base.
+        return policy
+    }
+}
+```
 
-### When should I use AFNetworking?
+#### Validating the Host
 
-AFNetworking remains the premiere networking library available for OS X and iOS, and can easily be used in Swift, just like any other Objective-C code. AFNetworking is stable and reliable, and isn't going anywhere.
+The `.PerformDefaultEvaluation`, `.PinCertificates` and `.PinPublicKeys` server trust policies all take a `validateHost` parameter. Setting the value to `true` will cause the server trust evaluation to verify that hostname in the certificate matches the hostname of the challenge. If they do not match, evaluation will fail. A `validateHost` value of `false` will still evaluate the full certificate chain, but will not validate the hostname of the leaf certificate.
 
-Use AFNetworking for any of the following:
+> It is recommended that `validateHost` always be set to `true` in production environments.
 
-- UIKit extensions, such as asynchronously loading images to `UIImageView`
-- Network reachability monitoring, using `AFNetworkReachabilityManager`
+#### Validating the Certificate Chain
 
-### What's the origin of the name Alamofire?
+Pinning certificates and public keys both have the option of validating the certificate chain using the `validateCertificateChain` parameter. By setting this value to `true`, the full certificate chain will be evaluated in addition to performing a byte equality check against the pinned certficates or public keys. A value of `false` will skip the certificate chain validation, but will still perform the byte equality check.
 
-Alamofire is named after the [Alamo Fire flower](https://aggie-horticulture.tamu.edu/wildseed/alamofire.html), a hybrid variant of the Bluebonnet, the official state flower of Texas.
+There are several cases where it may make sense to disable certificate chain validation. The most common use cases for disabling validation are self-signed and expired certificates. The evaluation would always fail in both of these cases, but the byte equality check will still ensure you are receiving the certificate you expect from the server.
+
+> It is recommended that `validateCertificateChain` always be set to `true` in production environments.
+
+---
+
+## Component Libraries
+
+In order to keep Alamofire focused specifically on core networking implementations, additional component libraries have been created by the [Alamofire Software Foundation](https://github.com/Alamofire/Foundation) to bring additional functionality to the Alamofire ecosystem.
+
+* [AlamofireImage](https://github.com/Alamofire/AlamofireImage) - An image library including image response serializers, `UIImage` and `UIImageView` extensions, custom image filters, an auto-purging in-memory cache and a priority-based image downloading system.
 
 ## Open Rdars
 
 The following rdars have some affect on the current implementation of Alamofire.
 
-* [rdar://22024442](http://openradar.appspot.com/radar?id=6082025006039040) - Array of [SecCertificate] crashing Swift 2.0 compiler in optimized builds
-* [rdar://21349340](https://openradar.appspot.com/radar?id=5517037090635776) - Compiler throwing warning due to toll-free bridging issue in test case
+* [rdar://22024442](http://www.openradar.me/radar?id=6082025006039040) - Array of [SecCertificate] crashing Swift 2.0 compiler in optimized builds
+* [rdar://21349340](http://www.openradar.me/radar?id=5517037090635776) - Compiler throwing warning due to toll-free bridging issue in test case
+* [rdar://22307360](http://www.openradar.me/radar?id=4895563208196096) - Swift #available check not working properly with min deployment target
 
-* * *
+## FAQ
+
+### What's the origin of the name Alamofire?
+
+Alamofire is named after the [Alamo Fire flower](https://aggie-horticulture.tamu.edu/wildseed/alamofire.html), a hybrid variant of the Bluebonnet, the official state flower of Texas.
+
+---
 
 ## Credits
 

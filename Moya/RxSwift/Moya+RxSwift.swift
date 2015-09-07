@@ -1,6 +1,8 @@
 import Foundation
 import RxSwift
 
+import Alamofire
+
 /// Subclass of MoyaProvider that returns Observable instances when requests are made. Much better than using completion closures.
 public class RxMoyaProvider<T where T: MoyaTarget>: MoyaProvider<T> {
     /// Current requests that have not completed or errored yet.
@@ -24,11 +26,11 @@ public class RxMoyaProvider<T where T: MoyaTarget>: MoyaProvider<T> {
             let observable: Observable<MoyaResponse> =  AnonymousObservable { observer in
                 let cancellableToken = self?.request(token) { (data, statusCode, response, error) -> () in
                     if let error = error {
-                        if let statusCode = statusCode {
-                            observer.on(.Error(NSError(domain: error.domain, code: statusCode, userInfo: error.userInfo)))
-                        } else {
+//                        if let statusCode = statusCode where error is Error {
+//                                observer.on(.Error(NSError(domain: error.domain, code: statusCode, userInfo: error.userInfo)))
+//                        } else {
                             observer.on(.Error(error))
-                        }
+//                        }
                     } else {
                         if let data = data {
                             observer.on(.Next(MoyaResponse(statusCode: statusCode!, data: data, response: response)))
